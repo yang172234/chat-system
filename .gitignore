@@ -1,0 +1,7 @@
+node_modules/
+chat.db
+uploads/
+*.log
+.env
+.DS_Store
+.claude/

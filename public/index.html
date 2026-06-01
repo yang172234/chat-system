@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chat System - 在线聊天系统</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <!-- ==================== Login Panel ==================== -->
+  <div id="login-panel" class="auth-panel">
+    <div class="auth-card">
+      <div class="auth-header">
+        <h1>💬 Chat System</h1>
+        <p>在线聊天系统</p>
+      </div>
+      <form id="login-form">
+        <div class="form-group">
+          <label for="login-username">用户名</label>
+          <input type="text" id="login-username" placeholder="请输入用户名" required minlength="2" maxlength="20">
+        </div>
+        <div class="form-group">
+          <label for="login-password">密码</label>
+          <input type="password" id="login-password" placeholder="请输入密码" required minlength="4">
+        </div>
+        <div id="login-error" class="error-msg"></div>
+        <button type="submit" class="btn btn-primary">登 录</button>
+      </form>
+      <div class="auth-footer">
+        还没有账号？ <a href="#" id="show-register">立即注册</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== Register Panel ==================== -->
+  <div id="register-panel" class="auth-panel" style="display:none;">
+    <div class="auth-card">
+      <div class="auth-header">
+        <h1>📝 注册账号</h1>
+        <p>创建你的聊天账号</p>
+      </div>
+      <form id="register-form">
+        <div class="form-group">
+          <label for="register-username">用户名</label>
+          <input type="text" id="register-username" placeholder="2-20个字符" required minlength="2" maxlength="20">
+        </div>
+        <div class="form-group">
+          <label for="register-password">密码</label>
+          <input type="password" id="register-password" placeholder="至少4个字符" required minlength="4">
+        </div>
+        <div class="form-group">
+          <label for="register-password-confirm">确认密码</label>
+          <input type="password" id="register-password-confirm" placeholder="再次输入密码" required minlength="4">
+        </div>
+        <div id="register-error" class="error-msg"></div>
+        <button type="submit" class="btn btn-primary">注 册</button>
+      </form>
+      <div class="auth-footer">
+        已有账号？ <a href="#" id="show-login">返回登录</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== Main App Panel ==================== -->
+  <div id="app-panel" style="display:none;">
+    <div id="app-container">
+      <!-- Left Sidebar -->
+      <div id="sidebar">
+        <div id="sidebar-header">
+          <div id="user-info">
+            <span id="current-avatar" class="avatar"></span>
+            <span id="current-username"></span>
+          </div>
+          <div id="sidebar-actions">
+            <button id="btn-help" class="btn-icon" title="使用帮助">❓</button>
+            <button id="btn-logout" class="btn-icon" title="退出登录">🚪</button>
+          </div>
+        </div>
+
+        <div id="search-box">
+          <input type="text" id="search-input" placeholder="搜索用户...">
+          <div id="search-results"></div>
+        </div>
+
+        <div id="sidebar-tabs">
+          <button class="tab-btn active" data-tab="contacts">💬 消息</button>
+          <button class="tab-btn" data-tab="friends-tab">👥 好友</button>
+          <button class="tab-btn" data-tab="groups-tab">👪 群聊</button>
+        </div>
+
+        <div id="sidebar-content">
+          <!-- Contacts Tab -->
+          <div id="tab-contacts" class="tab-content active">
+            <div id="contact-list"></div>
+          </div>
+          <!-- Friends Tab -->
+          <div id="tab-friends-tab" class="tab-content">
+            <div id="friend-groups-container"></div>
+          </div>
+          <!-- Groups Tab -->
+          <div id="tab-groups-tab" class="tab-content">
+            <div id="group-list"></div>
+            <button id="btn-create-group" class="btn btn-sm btn-primary" style="margin:10px;">+ 创建群聊</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Main Chat Area -->
+      <div id="chat-area">
+        <div id="chat-placeholder">
+          <div class="placeholder-content">
+            <h2>💬 欢迎使用 Chat System</h2>
+            <p class="placeholder-subtitle">选择一个联系人或群聊开始聊天</p>
+            <div class="guide-steps">
+              <h3>🚀 如何开始聊天？</h3>
+              <div class="guide-step">
+                <span class="step-number">1</span>
+                <div class="step-text">
+                  <strong>搜索好友</strong>
+                  <p>在左侧顶部的搜索框输入用户名（如 <em>yang</em>、<em>zhang</em>、<em>li</em>），点击 <b>"添加"</b> 发送好友请求</p>
+                </div>
+              </div>
+              <div class="guide-step">
+                <span class="step-number">2</span>
+                <div class="step-text">
+                  <strong>接受请求</strong>
+                  <p>切换到 <b>"👥 好友"</b> 标签，查看好友请求。或者登录对方账号接受请求</p>
+                </div>
+              </div>
+              <div class="guide-step">
+                <span class="step-number">3</span>
+                <div class="step-text">
+                  <strong>开始聊天</strong>
+                  <p>好友添加成功后，在 <b>"💬 消息"</b> 或 <b>"👥 好友"</b> 标签点击对方名字即可开始聊天</p>
+                </div>
+              </div>
+              <div class="guide-step">
+                <span class="step-number">4</span>
+                <div class="step-text">
+                  <strong>语音消息</strong>
+                  <p>点击输入框左侧的 🎤 按钮切换到语音模式，按住录音按钮说话，松开自动发送</p>
+                </div>
+              </div>
+            </div>
+            <div class="test-accounts">
+              <h4>📋 已注册的测试账号</h4>
+              <div class="account-tags">
+                <span class="account-tag">👤 demo（你）</span>
+                <span class="account-tag">👤 yang</span>
+                <span class="account-tag">👤 zhang</span>
+                <span class="account-tag">👤 li</span>
+              </div>
+              <p class="test-hint">💡 提示：可以使用 <b>无痕窗口</b> 或 <b>不同浏览器</b> 同时登录多个账号来测试聊天功能</p>
+            </div>
+            <div class="quick-actions">
+              <button class="btn btn-primary" onclick="document.getElementById('search-input').focus()">🔍 搜索好友</button>
+              <button class="btn" onclick="document.querySelector('.tab-btn[data-tab=friends-tab]').click()" style="background: rgba(255,255,255,0.1);border:1px solid var(--border);color:#fff;">👥 我的好友</button>
+            </div>
+          </div>
+        </div>
+        <div id="chat-active" style="display:none;">
+          <div id="chat-header">
+            <div id="chat-header-info">
+              <span id="chat-avatar" class="avatar"></span>
+              <div>
+                <div id="chat-title"></div>
+                <div id="chat-subtitle"></div>
+              </div>
+            </div>
+            <div id="chat-header-actions">
+              <button id="btn-export-chat" class="btn-icon" title="导出聊天记录">📥</button>
+            </div>
+          </div>
+          <div id="message-list"></div>
+          <div id="typing-indicator"></div>
+          <div id="chat-input-area">
+            <div id="input-toolbar">
+              <button id="btn-voice-toggle" class="btn-icon" title="语音消息">🎤</button>
+              <button id="btn-emoji" class="btn-icon" title="表情">😀</button>
+            </div>
+            <div id="emoji-picker" class="emoji-picker" style="display:none;"></div>
+            <div id="text-input-container">
+              <textarea id="message-input" placeholder="输入消息... (Enter发送, Shift+Enter换行)" rows="2"></textarea>
+            </div>
+            <div id="voice-input-container" style="display:none;">
+              <button id="btn-record" class="btn btn-danger">🔴 按住录音</button>
+              <span id="recording-time">00:00</span>
+            </div>
+            <button id="btn-send" class="btn btn-primary">发送</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right Panel (contextual) -->
+      <div id="right-panel" style="display:none;">
+        <div id="right-panel-header">
+          <h3 id="right-panel-title"></h3>
+          <button id="btn-close-right" class="btn-icon">✖</button>
+        </div>
+        <div id="right-panel-content"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== Modals ==================== -->
+  <div id="modal-overlay" style="display:none;">
+    <div id="modal-box">
+      <div id="modal-header">
+        <h3 id="modal-title"></h3>
+        <button id="btn-close-modal" class="btn-icon">✖</button>
+      </div>
+      <div id="modal-body"></div>
+      <div id="modal-footer"></div>
+    </div>
+  </div>
+
+  <!-- ==================== Particle Background ==================== -->
+  <div class="particles">
+    <span></span><span></span><span></span><span></span><span></span>
+    <span></span><span></span><span></span><span></span><span></span>
+    <span></span><span></span><span></span><span></span><span></span>
+    <span></span><span></span><span></span><span></span><span></span>
+  </div>
+
+  <!-- ==================== Scripts ==================== -->
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/js/app.js"></script>
+  <script src="/js/auth.js"></script>
+  <script src="/js/chat.js"></script>
+  <script src="/js/friends.js"></script>
+  <script src="/js/voice.js"></script>
+</body>
+</html>
