@@ -12,11 +12,22 @@ let db = null;
 async function initDatabase() {
   const SQL = await initSqlJs();
 
+  let isNew = false;
   if (fs.existsSync(DB_PATH)) {
     const buffer = fs.readFileSync(DB_PATH);
-    db = new SQL.Database(buffer);
+    try {
+      db = new SQL.Database(buffer);
+    } catch (e) {
+      // Database file corrupted — back it up and start fresh
+      const backupPath = DB_PATH + '.corrupted.' + Date.now();
+      fs.copyFileSync(DB_PATH, backupPath);
+      console.error(`Database corrupted! Backed up to ${backupPath}. Starting fresh.`);
+      db = new SQL.Database();
+      isNew = true;
+    }
   } else {
     db = new SQL.Database();
+    isNew = true;
   }
 
   db.run('PRAGMA foreign_keys = ON');
@@ -128,13 +139,18 @@ async function initDatabase() {
   db.run('CREATE INDEX IF NOT EXISTS idx_friend_user ON friendships(user_id)');
   db.run('CREATE INDEX IF NOT EXISTS idx_fr_to ON friend_requests(to_user_id, status)');
 
-  saveDatabase();
+  if (isNew) saveDatabase();
   return db;
 }
 
 function saveDatabase() {
   const data = db.export();
   const buffer = Buffer.from(data);
+  // Backup before overwrite
+  if (fs.existsSync(DB_PATH)) {
+    const bakPath = DB_PATH + '.bak';
+    try { fs.copyFileSync(DB_PATH, bakPath); } catch (e) {}
+  }
   fs.writeFileSync(DB_PATH, buffer);
 }
 

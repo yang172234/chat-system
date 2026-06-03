@@ -8,6 +8,9 @@ const App = {
   contacts: [],
   pendingRequests: [],
   botFriendIds: new Set(),
+  friendGroups: [], // custom friend groups from /api/friends/groups
+  unreadMessages: {}, // { friendId: count } — unread private messages
+  unreadRequests: 0, // count of pending received friend requests
 };
 
 // ==================== DOM Elements ====================
@@ -179,7 +182,31 @@ window.sendFriendRequestFromModal = sendFriendRequestFromModal;
 document.getElementById('btn-logout').addEventListener('click', async () => {
   await api('/api/logout', { method: 'POST' });
   if (App.socket) App.socket.disconnect();
+
+  // Reset app state
   App.currentUser = null;
+  App.activeChat = null;
+  App.friends = {};
+  App.groups = [];
+  App.contacts = [];
+  App.pendingRequests = [];
+  App.botFriendIds.clear();
+  App.friendGroups = [];
+  App.unreadMessages = {};
+  App.unreadRequests = 0;
+
+  // Reset chat area
+  currentConversation = null;
+  DOM.chatPlaceholder.style.display = 'flex';
+  DOM.chatActive.style.display = 'none';
+  document.getElementById('message-list').innerHTML = '';
+  document.getElementById('typing-indicator').innerHTML = '';
+  document.getElementById('message-input').value = '';
+
+  // Close right panel
+  DOM.rightPanel.style.display = 'none';
+
+  // Switch to login panel
   DOM.appPanel.style.display = 'none';
   DOM.loginPanel.style.display = 'flex';
   DOM.registerPanel.style.display = 'none';
@@ -211,7 +238,22 @@ async function loadAllData() {
     loadFriends(),
     loadGroups(),
     loadContacts(),
+    loadFriendGroups(),
   ]);
+  loadUnreadRequestCount();
+}
+
+async function loadFriendGroups() {
+  const res = await api('/api/friends/groups');
+  if (res.groups) App.friendGroups = res.groups;
+}
+
+async function loadUnreadRequestCount() {
+  const res = await api('/api/friends/requests');
+  if (res.requests) {
+    App.unreadRequests = res.requests.length;
+    updateRequestBadge();
+  }
 }
 
 async function loadFriends() {

@@ -23,9 +23,11 @@ function renderContactList() {
   DOM.contactList.innerHTML = App.contacts.map(c => {
     const lastMsg = c.last_message || '';
     const active = App.activeChat?.type === 'private' && App.activeChat?.id === c.contact_id;
+    const unreadCount = App.unreadMessages[c.contact_id] || 0;
+    const unreadDot = !active && unreadCount > 0 ? '<span class="notification-dot"></span>' : '';
     return `
       <div class="contact-item ${active ? 'active' : ''}" data-contact-id="${c.contact_id}" data-username="${c.username}">
-        ${getAvatarHtml({ id: c.contact_id, username: c.username })}
+        <span style="position:relative;display:inline-block;">${getAvatarHtml({ id: c.contact_id, username: c.username })}${unreadDot}</span>
         <div class="contact-info">
           <div class="contact-name">${c.username}</div>
           <div class="contact-last-msg">${lastMsg}</div>
@@ -52,6 +54,13 @@ function openPrivateChat(userId, username) {
   // Update active state
   App.activeChat = { type: 'private', id: userId };
   updateActiveContact();
+
+  // Clear unread for this friend
+  if (App.unreadMessages[userId]) {
+    delete App.unreadMessages[userId];
+    loadContacts();
+    renderFriendGroups();
+  }
 
   // Update UI
   DOM.chatPlaceholder.style.display = 'none';
@@ -248,14 +257,22 @@ messageInput.addEventListener('input', () => {
 
 // ==================== Handle Incoming Messages ====================
 function handlePrivateMessage(msg) {
+  const isFromMe = msg.sender_id === App.currentUser?.id;
+
   // If this is from/to current conversation, display it
   if (currentConversation?.type === 'private' &&
       (currentConversation.id === msg.sender_id || currentConversation.id === msg.receiver_id)) {
     renderMessages([msg], 'append');
   }
 
-  // Refresh contact list
+  // Track unread: incoming message from someone who isn't the active chat
+  if (!isFromMe && !(currentConversation?.type === 'private' && currentConversation.id === msg.sender_id)) {
+    App.unreadMessages[msg.sender_id] = (App.unreadMessages[msg.sender_id] || 0) + 1;
+  }
+
+  // Refresh contact list and friends (to show dots)
   loadContacts();
+  if (!isFromMe) renderFriendGroups();
 }
 
 function handleGroupMessage(msg) {
@@ -418,13 +435,11 @@ window.sendFriendRequestFromModal = sendFriendRequestFromModal;
 
 // ==================== Friend Request Handlers ====================
 function handleNewRequest(data) {
-  // Show notification
-  const badge = document.querySelector('.tab-btn[data-tab="friends-tab"] .badge');
-  if (!badge) {
-    const tab = document.querySelector('.tab-btn[data-tab="friends-tab"]');
-    if (tab) tab.innerHTML = '👥 好友 <span class="badge">新</span>';
-  }
-  // Alert
+  // Increment unread count
+  App.unreadRequests++;
+  updateRequestBadge();
+
+  // Browser notification
   if (typeof Notification !== 'undefined') {
     try { new Notification('Chat System', { body: `${data.from_username} 请求添加你为好友` }); } catch(e) {}
   }

@@ -985,6 +985,50 @@ body::after {
   50% { box-shadow: 0 0 16px var(--danger-glow), 0 0 24px rgba(255,71,87,0.2); }
 }
 
+/* Notification dot (red dot for unread) */
+.notification-dot {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 8px;
+  height: 8px;
+  background: var(--danger);
+  border-radius: 50%;
+  box-shadow: 0 0 6px var(--danger-glow);
+  pointer-events: none;
+  z-index: 2;
+}
+.notification-dot.inline {
+  position: relative;
+  display: inline-block;
+  top: -6px;
+  right: auto;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+/* Unread count badge (number inside red dot) */
+.unread-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 9px;
+  padding: 0 5px;
+  margin-left: 6px;
+  box-shadow: 0 0 10px var(--danger-glow);
+  animation: badgePulse 2s ease-in-out infinite;
+}
+
+.contact-item, .friend-item {
+  position: relative;
+}
+
 .select-group {
   width: 100%;
   padding: 10px;

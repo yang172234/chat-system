@@ -18,6 +18,7 @@ const {
   createChatGroup, addGroupMember, removeGroupMember, getUserGroups, getGroupMembers, getGroupById,
   saveMessage, getPrivateMessages, getGroupMessages, getAllPrivateMessages, getAllGroupMessages, getRecentContacts,
   isBotUser, getBotForUser, getOwnerForBot, createBotForUser, isBotFriendship, getBotConversationContext, updateMessageContent,
+  saveDatabase,
 } = require('./database');
 
 const { streamChat } = require('./bot');
@@ -716,5 +717,26 @@ async function start() {
     console.log(`Chat server running at http://localhost:${PORT}`);
   });
 }
+
+// Graceful shutdown — save database before exit
+function gracefulShutdown(signal) {
+  console.log(`\nReceived ${signal}, shutting down gracefully...`);
+  server.close(() => {
+    console.log('HTTP server closed.');
+    if (typeof saveDatabase === 'function') {
+      saveDatabase();
+      console.log('Database saved.');
+    }
+    process.exit(0);
+  });
+  // Force exit after 5s
+  setTimeout(() => {
+    console.error('Forced shutdown after timeout.');
+    process.exit(1);
+  }, 5000);
+}
+
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 
 start();

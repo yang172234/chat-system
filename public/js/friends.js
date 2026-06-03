@@ -27,9 +27,11 @@ function renderFriendGroups() {
     for (const f of friends) {
       const active = App.activeChat?.type === 'private' && App.activeChat?.id === f.friend_id;
       const isBot = f.is_bot === 1;
+      const unreadCount = App.unreadMessages[f.friend_id] || 0;
+      const unreadDot = !active && unreadCount > 0 ? '<span class="notification-dot"></span>' : '';
       html += `
         <div class="friend-item ${active ? 'active' : ''} ${isBot ? 'bot-friend-item' : ''}" data-friend-id="${f.friend_id}" data-friendship-id="${f.friendship_id}" data-username="${f.username}" data-group="${groupName}">
-          ${getAvatarHtml({ id: f.friend_id, username: isBot ? 'AI' : f.username })}
+          <span style="position:relative;display:inline-block;">${getAvatarHtml({ id: f.friend_id, username: isBot ? 'AI' : f.username })}${unreadDot}</span>
           <div class="contact-info">
             <div class="contact-name">${isBot ? 'AI 助手' : f.username}${isBot ? ' 🤖' : ''}</div>
           </div>
@@ -102,8 +104,10 @@ function showMoveFriendMenu(e, friendshipId, username) {
   contextMenu.style.left = e.clientX + 'px';
   contextMenu.style.top = e.clientY + 'px';
 
-  // Get all friend groups
-  const allGroups = Object.keys(App.friends);
+  // Merge: groups with friends + custom groups (may be empty)
+  const groupSet = new Set(Object.keys(App.friends));
+  (App.friendGroups || []).forEach(g => groupSet.add(g.name));
+  const allGroups = [...groupSet];
 
   contextMenu.innerHTML = `
     <div style="padding:6px 16px;font-size:11px;color:var(--text-light);border-bottom:1px solid var(--border);">移动 "${username}" 到:</div>
@@ -444,6 +448,10 @@ window.removeGroupMember = removeGroupMember;
 
 // ==================== Friend Requests Panel ====================
 async function showFriendRequests() {
+  // Clear unread badge
+  App.unreadRequests = 0;
+  updateRequestBadge();
+
   const [received, sent] = await Promise.all([
     api('/api/friends/requests'),
     api('/api/friends/requests/sent'),
@@ -551,11 +559,23 @@ window.doDeleteGroup = doDeleteGroup;
 // Add request button to friends tab
 const friendsTab = document.getElementById('tab-friends-tab');
 const requestBtn = document.createElement('button');
+requestBtn.id = 'btn-friend-requests';
 requestBtn.className = 'btn btn-primary btn-sm';
 requestBtn.style.cssText = 'margin:10px;';
-requestBtn.textContent = '📨 好友请求';
+requestBtn.innerHTML = '📨 好友请求';
 requestBtn.addEventListener('click', showFriendRequests);
 friendsTab.insertBefore(requestBtn, friendsTab.firstChild);
+
+// Update the badge on the friend requests button
+function updateRequestBadge() {
+  const btn = document.getElementById('btn-friend-requests');
+  if (!btn) return;
+  if (App.unreadRequests > 0) {
+    btn.innerHTML = `📨 好友请求 <span class="unread-count">${App.unreadRequests}</span>`;
+  } else {
+    btn.innerHTML = '📨 好友请求';
+  }
+}
 
 // Create friend group button
 document.getElementById('btn-create-friend-group')?.addEventListener('click', showCreateFriendGroupModal);
