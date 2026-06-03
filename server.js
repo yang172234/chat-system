@@ -1,4 +1,4 @@
-require('dotenv').config();
+require('dotenv').config({ path: __dirname + '/.env' });
 
 const express = require('express');
 const http = require('http');
@@ -715,6 +715,8 @@ async function start() {
   await initDatabase();
   server.listen(PORT, () => {
     console.log(`Chat server running at http://localhost:${PORT}`);
+    console.log(`DeepSeek API Key: ${process.env.DEEPSEEK_API_KEY ? '✅ 已配置 (' + process.env.DEEPSEEK_API_KEY.substring(0, 10) + '...)' : '❌ 未配置'}`);
+    console.log(`Public domain: ${process.env.RAILWAY_PUBLIC_DOMAIN || '本地开发'}`);
   });
 }
 
