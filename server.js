@@ -1,3 +1,5 @@
+require('dotenv').config();
+
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
@@ -12,10 +14,13 @@ const {
   createUser, getUserByUsername, getUserById, searchUsers,
   sendFriendRequest, getPendingRequests, getSentRequests, respondToRequest, resendFriendRequest,
   getFriends, getFriendsByGroup, removeFriend, moveFriendToGroup,
-  getFriendGroups, createFriendGroup, deleteFriendGroup,
+  getFriendGroups, createFriendGroup, renameFriendGroup, deleteFriendGroup,
   createChatGroup, addGroupMember, removeGroupMember, getUserGroups, getGroupMembers, getGroupById,
   saveMessage, getPrivateMessages, getGroupMessages, getAllPrivateMessages, getAllGroupMessages, getRecentContacts,
+  isBotUser, getBotForUser, getOwnerForBot, createBotForUser, isBotFriendship, getBotConversationContext, updateMessageContent,
 } = require('./database');
+
+const { streamChat } = require('./bot');
 
 const app = express();
 const server = http.createServer(app);
@@ -84,6 +89,14 @@ app.post('/api/register', (req, res) => {
 
   const hash = bcrypt.hashSync(password, 10);
   const userId = createUser(username, hash);
+
+  // Auto-create AI bot friend for new user
+  try {
+    createBotForUser(userId);
+    console.log(`Bot created for user ${userId}`);
+  } catch (e) {
+    console.error(`Failed to create bot for user ${userId}:`, e.message);
+  }
 
   req.session.userId = userId;
   res.json({ success: true, user: { id: userId, username } });
@@ -218,6 +231,7 @@ app.get('/api/friends', requireAuth, (req, res) => {
 app.delete('/api/friends/:friendshipId', requireAuth, (req, res) => {
   const result = removeFriend(req.session.userId, parseInt(req.params.friendshipId));
   if (!result) return res.status(400).json({ error: '好友关系不存在' });
+  if (result.error) return res.status(400).json({ error: result.error });
 
   io.to(`user:${req.session.userId}`).emit('friends-updated');
   io.to(`user:${result.friend_id}`).emit('friends-updated');
@@ -231,6 +245,7 @@ app.put('/api/friends/:friendshipId/group', requireAuth, (req, res) => {
 
   const result = moveFriendToGroup(req.session.userId, parseInt(req.params.friendshipId), groupName);
   if (!result) return res.status(400).json({ error: '好友关系不存在' });
+  if (result.error) return res.status(400).json({ error: result.error });
 
   io.to(`user:${req.session.userId}`).emit('friends-updated');
 
@@ -256,6 +271,24 @@ app.delete('/api/friends/groups/:groupId', requireAuth, (req, res) => {
   const result = deleteFriendGroup(req.session.userId, parseInt(req.params.groupId));
   if (!result) return res.status(400).json({ error: '分组不存在或不可删除' });
   res.json({ success: true });
+});
+
+// AI Bot management
+app.post('/api/ai-bot/create', requireAuth, (req, res) => {
+  const result = createBotForUser(req.session.userId);
+  if (!result) return res.status(400).json({ error: '创建 AI 助手失败' });
+  io.to(`user:${req.session.userId}`).emit('friends-updated');
+  res.json({ success: true, bot: result });
+});
+
+app.put('/api/friends/groups/:groupId', requireAuth, (req, res) => {
+  const { name } = req.body;
+  if (!name || name.trim().length === 0) return res.status(400).json({ error: '缺少分组名称' });
+  if (name.trim().length > 20) return res.status(400).json({ error: '分组名称不能超过20个字符' });
+  const result = renameFriendGroup(req.session.userId, parseInt(req.params.groupId), name.trim());
+  if (!result) return res.status(400).json({ error: '分组不存在或不可重命名' });
+  if (result.error) return res.status(400).json({ error: result.error });
+  res.json({ success: true, group: result });
 });
 
 // ==================== Chat Group Routes ====================
@@ -414,6 +447,12 @@ io.on('connection', (socket) => {
   // Notify friends that user is online
   socket.broadcast.emit('user-online', { userId });
 
+  // Also emit online for user's bot (always online)
+  const bot = getBotForUser(userId);
+  if (bot) {
+    socket.emit('user-online', { userId: bot.bot_user_id, isBot: true });
+  }
+
   console.log(`User ${userId} connected (${socket.id})`);
 
   // ===== Private Chat =====
@@ -438,6 +477,110 @@ io.on('connection', (socket) => {
     io.to(`user:${toUserId}`).emit('private-message', messageData);
     // Send back to sender
     socket.emit('private-message', messageData);
+
+    // ---- Bot interception ----
+    if (isBotUser(toUserId)) {
+      const owner = getOwnerForBot(toUserId);
+      // Only respond to the bot's owner
+      if (!owner || owner.owner_user_id !== userId) return;
+
+      // Handle voice messages sent to bot
+      if (messageType === 'voice') {
+        const voiceReply = saveMessage(toUserId, userId, null, '抱歉，我现在只能处理文字消息~', 'text');
+        const voiceReplyData = {
+          id: voiceReply.id,
+          sender_id: toUserId,
+          sender_name: 'AI 助手',
+          sender_avatar: undefined,
+          receiver_id: userId,
+          content: '抱歉，我现在只能处理文字消息~',
+          message_type: 'text',
+          created_at: voiceReply.created_at,
+        };
+        setTimeout(() => {
+          io.to(`user:${userId}`).emit('private-message', voiceReplyData);
+        }, 500);
+        return;
+      }
+
+      // Get conversation context
+      const contextMessages = getBotConversationContext(userId, toUserId, 10);
+
+      // Build system prompt with context
+      const messages = [
+        {
+          role: 'system',
+          content: '你是一个友好的 AI 助手，名叫"AI 助手"。你正在和用户进行私聊。请用简洁、自然的中文回复。回复不要过长，尽量控制在 200 字以内。保持友好、有帮助的态度。'
+        },
+        ...contextMessages,
+      ];
+
+      // Emit typing start
+      socket.emit('typing-start', { userId: toUserId, chatType: 'private', isBot: true });
+
+      let botMsgId = null;
+      let firstChunk = true;
+
+      streamChat(
+        messages,
+        // onChunk
+        (delta) => {
+          if (firstChunk) {
+            // Stop typing on first chunk
+            socket.emit('typing-stop', { userId: toUserId, chatType: 'private', isBot: true });
+            firstChunk = false;
+            // Save initial message and emit stream start
+            const botMsg = saveMessage(toUserId, userId, null, delta, 'text');
+            botMsgId = botMsg.id;
+            socket.emit('bot-message-stream', {
+              id: botMsgId,
+              sender_id: toUserId,
+              sender_name: 'AI 助手',
+              receiver_id: userId,
+              content: delta,
+              message_type: 'text',
+              isStreaming: true,
+              created_at: botMsg.created_at,
+            });
+          } else {
+            // Emit delta
+            socket.emit('bot-message-delta', {
+              id: botMsgId,
+              delta,
+            });
+          }
+        },
+        // onDone
+        (fullText) => {
+          socket.emit('typing-stop', { userId: toUserId, chatType: 'private', isBot: true });
+          if (botMsgId && fullText) {
+            updateMessageContent(botMsgId, fullText);
+            socket.emit('bot-message-done', {
+              id: botMsgId,
+              finalContent: fullText,
+            });
+          }
+        },
+        // onError
+        (error) => {
+          socket.emit('typing-stop', { userId: toUserId, chatType: 'private', isBot: true });
+          console.error('Bot error:', error.message);
+          const errorContent = error.message === 'DEEPSEEK_API_KEY not configured'
+            ? '抱歉，AI 服务暂未配置，请联系管理员设置 DEEPSEEK_API_KEY。'
+            : `抱歉，我暂时无法回复（${error.message}），请稍后再试。`;
+          const errorMsg = saveMessage(toUserId, userId, null, errorContent, 'text');
+          socket.emit('private-message', {
+            id: errorMsg.id,
+            sender_id: toUserId,
+            sender_name: 'AI 助手',
+            receiver_id: userId,
+            content: errorContent,
+            message_type: 'text',
+            created_at: errorMsg.created_at,
+          });
+        }
+      );
+    }
   });
 
   // ===== Voice Message =====
@@ -555,7 +698,10 @@ io.on('connection', (socket) => {
       onlineUsers.get(userId).delete(socket.id);
       if (onlineUsers.get(userId).size === 0) {
         onlineUsers.delete(userId);
-        socket.broadcast.emit('user-offline', { userId });
+        // Don't emit offline for bot users (they're always online)
+        if (!isBotUser(userId)) {
+          socket.broadcast.emit('user-offline', { userId });
+        }
       }
     }
     console.log(`User ${userId} disconnected (${socket.id})`);

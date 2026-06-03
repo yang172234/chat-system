@@ -532,6 +532,13 @@ body::after {
   align-items: center;
   justify-content: space-between;
   font-weight: 600;
+  cursor: context-menu;
+  border-radius: 4px;
+  transition: background 0.2s ease;
+  user-select: none;
+}
+.friend-group-header:hover {
+  background: rgba(255,255,255,0.03);
 }
 
 .friend-group-count {
@@ -1400,5 +1407,76 @@ input[type="checkbox"] {
 
 #chat-input-area {
   position: relative;
+}
+
+/* ==================== Bot Styles ==================== */
+
+/* Bot message bubble — purple gradient */
+.message-wrapper.bot .message-bubble {
+  background: linear-gradient(135deg, rgba(192,132,252,0.18), rgba(139,92,246,0.1));
+  border: 1px solid rgba(192,132,252,0.25);
+}
+.message-wrapper.bot .message-bubble::before {
+  background: #C084FC;
+  box-shadow: 0 0 8px rgba(192,132,252,0.4);
+}
+.message-wrapper.bot .message-avatar {
+  background: linear-gradient(135deg, #C084FC, #8B5CF6) !important;
+  font-size: 14px;
+}
+.message-wrapper.bot .message-sender {
+  color: #C084FC;
+}
+
+/* Streaming cursor animation */
+.message-wrapper.streaming .message-text::after {
+  content: '▊';
+  animation: cursor-blink 1s step-end infinite;
+  color: var(--accent);
+  font-size: 14px;
+  vertical-align: middle;
+}
+@keyframes cursor-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+/* Bot friend item in sidebar */
+.bot-friend-item {
+  position: relative;
+}
+.bot-friend-item .avatar {
+  background: linear-gradient(135deg, #C084FC, #8B5CF6) !important;
+}
+.bot-friend-item .contact-name::after {
+  content: ' 🤖';
+  font-size: 12px;
+}
+
+/* AI group header */
+.bot-group-header {
+  color: #C084FC !important;
+}
+
+/* Bot typing indicator */
+.typing-dots {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.typing-dots span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: dot-bounce 1.4s infinite ease-in-out both;
+}
+.typing-dots span:nth-child(1) { animation-delay: -0.32s; }
+.typing-dots span:nth-child(2) { animation-delay: -0.16s; }
+.typing-dots span:nth-child(3) { animation-delay: 0s; }
+@keyframes dot-bounce {
+  0%, 80%, 100% { transform: scale(0); }
+  40% { transform: scale(1); }
 }
 

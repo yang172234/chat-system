@@ -154,7 +154,9 @@ function renderMessages(messages, mode = 'append') {
 
 function renderMessageBubble(m) {
   const isSelf = m.sender_id === App.currentUser?.id;
-  const wrapperClass = isSelf ? 'self' : 'other';
+  const isBot = App.botFriendIds.has(m.sender_id);
+  const wrapperClass = isSelf ? 'self' : (isBot ? 'bot' : 'other');
+  const streamingClass = m.isStreaming ? 'streaming' : '';
 
   let contentHtml = '';
   if (m.message_type === 'voice') {
@@ -168,13 +170,27 @@ function renderMessageBubble(m) {
     contentHtml = `<div class="message-text">${escapeHtml(m.content || '')}</div>`;
   }
 
+  const timeHtml = m.isStreaming ? '<div class="message-time">正在输入...</div>' : `<div class="message-time">${timeAgo(m.created_at)}</div>`;
+
+  let avatarHtml = '';
+  if (!isSelf) {
+    if (isBot) {
+      avatarHtml = `<div class="message-avatar" style="background:linear-gradient(135deg, #C084FC, #8B5CF6);">🤖</div>`;
+    } else {
+      avatarHtml = `<div class="message-avatar" style="background:${getColorForUser(m.sender_id)};">${(m.sender_name || '?')[0].toUpperCase()}</div>`;
+    }
+  }
+
+  const senderHtml = (!isSelf && !isBot) ? `<div class="message-sender">${m.sender_name || ''}</div>` : '';
+  const botSenderHtml = isBot ? `<div class="message-sender">AI 助手 🤖</div>` : '';
+
   return `
-    <div class="message-wrapper ${wrapperClass}">
-      ${!isSelf ? `<div class="message-avatar" style="background:${getColorForUser(m.sender_id)};">${(m.sender_name || '?')[0].toUpperCase()}</div>` : ''}
+    <div class="message-wrapper ${wrapperClass} ${streamingClass}" data-message-id="${m.id || ''}">
+      ${avatarHtml}
       <div class="message-bubble">
-        ${!isSelf ? `<div class="message-sender">${m.sender_name || ''}</div>` : ''}
+        ${senderHtml}${botSenderHtml}
         ${contentHtml}
-        <div class="message-time">${timeAgo(m.created_at)}</div>
+        ${timeHtml}
       </div>
       ${isSelf ? `<div class="message-avatar" style="background:${getColorForUser(m.sender_id)};">${(m.sender_name || '?')[0].toUpperCase()}</div>` : ''}
     </div>
@@ -275,12 +291,21 @@ function handleTypingStart(data) {
   const contactItem = document.querySelector(`.contact-item[data-contact-id="${data.userId}"]`);
   if (contactItem) {
     const lastMsg = contactItem.querySelector('.contact-last-msg');
-    if (lastMsg) lastMsg.textContent = '正在输入...';
+    if (lastMsg) lastMsg.textContent = data.isBot ? 'AI 正在思考...' : '正在输入...';
   }
 
   // Show in chat area
   if (currentConversation?.type === 'private' && currentConversation.id === data.userId) {
-    typingIndicator.textContent = '对方正在输入...';
+    if (data.isBot) {
+      typingIndicator.innerHTML = `
+        <span>AI 正在思考</span>
+        <span class="typing-dots">
+          <span></span><span></span><span></span>
+        </span>
+      `;
+    } else {
+      typingIndicator.textContent = '对方正在输入...';
+    }
   }
   if (data.chatType === 'group' && currentConversation?.type === 'group') {
     typingIndicator.textContent = `${data.username || '有人'}正在输入...`;
@@ -291,17 +316,58 @@ function handleTypingStop(data) {
   const contactItem = document.querySelector(`.contact-item[data-contact-id="${data.userId}"]`);
   if (contactItem) {
     const lastMsg = contactItem.querySelector('.contact-last-msg');
-    if (lastMsg && lastMsg.textContent === '正在输入...') {
+    if (lastMsg && (lastMsg.textContent === '正在输入...' || lastMsg.textContent === 'AI 正在思考...')) {
       lastMsg.textContent = '';
     }
   }
 
   if (currentConversation?.type === 'private' && currentConversation.id === data.userId) {
-    typingIndicator.textContent = '';
+    typingIndicator.innerHTML = '';
   }
   if (data.chatType === 'group') {
     typingIndicator.textContent = '';
   }
+}
+
+// ==================== Bot Streaming Handlers ====================
+
+function handleBotMessageStream(data) {
+  // Only display if it's from or to the current conversation
+  if (currentConversation?.type === 'private' &&
+      (currentConversation.id === data.sender_id || currentConversation.id === data.receiver_id)) {
+    renderMessages([data], 'append');
+  }
+}
+
+function handleBotMessageDelta(data) {
+  // Find the streaming message bubble and append text
+  const bubble = document.querySelector(`.message-wrapper[data-message-id="${data.id}"]`);
+  if (bubble) {
+    const textEl = bubble.querySelector('.message-text');
+    if (textEl) {
+      textEl.textContent += data.delta;
+    }
+    // Auto-scroll
+    messageList.scrollTop = messageList.scrollHeight;
+  }
+}
+
+function handleBotMessageDone(data) {
+  // Finalize the streaming message
+  const bubble = document.querySelector(`.message-wrapper[data-message-id="${data.id}"]`);
+  if (bubble) {
+    bubble.classList.remove('streaming');
+    const textEl = bubble.querySelector('.message-text');
+    if (textEl) {
+      textEl.textContent = data.finalContent;
+    }
+    const timeEl = bubble.querySelector('.message-time');
+    if (timeEl) {
+      timeEl.textContent = '刚刚';
+    }
+  }
+  // Refresh contacts
+  loadContacts();
 }
 
 // ==================== Scroll to Load More ====================

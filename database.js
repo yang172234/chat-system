@@ -107,6 +107,21 @@ async function initDatabase() {
     )
   `);
 
+  // Add is_bot column (migration for existing databases)
+  try { db.run('ALTER TABLE users ADD COLUMN is_bot INTEGER DEFAULT 0'); } catch (e) { /* column exists */ }
+
+  // Bot-to-owner mapping table
+  db.run(`
+    CREATE TABLE IF NOT EXISTS user_bots (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      bot_user_id INTEGER NOT NULL UNIQUE,
+      owner_user_id INTEGER NOT NULL UNIQUE,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (bot_user_id) REFERENCES users(id),
+      FOREIGN KEY (owner_user_id) REFERENCES users(id)
+    )
+  `);
+
   // Indexes
   db.run('CREATE INDEX IF NOT EXISTS idx_msg_private ON messages(sender_id, receiver_id, created_at)');
   db.run('CREATE INDEX IF NOT EXISTS idx_msg_group ON messages(group_id, created_at)');
@@ -187,7 +202,7 @@ function getUserById(id) {
 }
 
 function searchUsers(query, excludeId) {
-  return all('SELECT id, username, avatar FROM users WHERE username LIKE ? AND id != ? LIMIT 20', [`%${query}%`, excludeId]);
+  return all('SELECT id, username, avatar FROM users WHERE username LIKE ? AND id != ? AND is_bot = 0 LIMIT 20', [`%${query}%`, excludeId]);
 }
 
 // ==================== Friend Request Operations ====================
@@ -253,7 +268,7 @@ function resendFriendRequest(requestId, userId, message) {
 
 function getFriends(userId) {
   return all(`
-    SELECT f.id as friendship_id, f.group_name, u.id as friend_id, u.username, u.avatar
+    SELECT f.id as friendship_id, f.group_name, u.id as friend_id, u.username, u.avatar, u.is_bot
     FROM friendships f
     JOIN users u ON f.friend_id = u.id
     WHERE f.user_id = ?
@@ -274,6 +289,8 @@ function getFriendsByGroup(userId) {
 function removeFriend(userId, friendshipId) {
   const friendship = get('SELECT * FROM friendships WHERE id = ? AND user_id = ?', [friendshipId, userId]);
   if (!friendship) return null;
+  // Prevent removing bot friendships
+  if (isBotFriendship(friendshipId)) return { error: 'AI 助手不可删除' };
   run('DELETE FROM friendships WHERE id = ?', [friendshipId]);
   run('DELETE FROM friendships WHERE user_id = ? AND friend_id = ?', [friendship.friend_id, userId]);
   return friendship;
@@ -282,6 +299,8 @@ function removeFriend(userId, friendshipId) {
 function moveFriendToGroup(userId, friendshipId, groupName) {
   const friendship = get('SELECT * FROM friendships WHERE id = ? AND user_id = ?', [friendshipId, userId]);
   if (!friendship) return null;
+  // Prevent moving bot friendships
+  if (isBotFriendship(friendshipId)) return { error: 'AI 助手不可移动到其他分组' };
   run('UPDATE friendships SET group_name = ? WHERE id = ?', [groupName, friendshipId]);
   return friendship;
 }
@@ -301,13 +320,120 @@ function createFriendGroup(userId, name) {
   }
 }
 
+function renameFriendGroup(userId, groupId, newName) {
+  const group = get('SELECT * FROM friend_groups WHERE id = ? AND user_id = ?', [groupId, userId]);
+  if (!group) return null;
+  if (DEFAULT_GROUPS.includes(group.name)) return null;
+  if (group.name === 'AI 助手') return null;
+  // Check if new name already exists
+  const duplicate = get('SELECT * FROM friend_groups WHERE user_id = ? AND name = ? AND id != ?', [userId, newName, groupId]);
+  if (duplicate) return { error: '分组名称已存在' };
+  const oldName = group.name;
+  run('UPDATE friend_groups SET name = ? WHERE id = ?', [newName, groupId]);
+  run('UPDATE friendships SET group_name = ? WHERE user_id = ? AND group_name = ?', [newName, userId, oldName]);
+  return { id: groupId, name: newName, oldName };
+}
+
 function deleteFriendGroup(userId, groupId) {
   const group = get('SELECT * FROM friend_groups WHERE id = ? AND user_id = ?', [groupId, userId]);
   if (!group) return null;
   if (DEFAULT_GROUPS.includes(group.name)) return null;
+  if (group.name === 'AI 助手') return null;
   run('UPDATE friendships SET group_name = ? WHERE user_id = ? AND group_name = ?', ['我的好友', userId, group.name]);
   run('DELETE FROM friend_groups WHERE id = ?', [groupId]);
   return group;
+}
+
+// ==================== Bot Operations ====================
+
+const BOT_GROUP_NAME = 'AI 助手';
+const BOT_USERNAME_PREFIX = 'AI助手_';
+
+function isBotUser(userId) {
+  const user = get('SELECT is_bot FROM users WHERE id = ?', [userId]);
+  return user && user.is_bot === 1;
+}
+
+function getBotForUser(userId) {
+  return get(`
+    SELECT ub.bot_user_id, u.username as bot_username
+    FROM user_bots ub
+    JOIN users u ON ub.bot_user_id = u.id
+    WHERE ub.owner_user_id = ?
+  `, [userId]);
+}
+
+function getOwnerForBot(botUserId) {
+  return get('SELECT owner_user_id FROM user_bots WHERE bot_user_id = ?', [botUserId]);
+}
+
+function isBotFriendship(friendshipId) {
+  const f = get(`
+    SELECT u.is_bot FROM friendships f
+    JOIN users u ON f.friend_id = u.id
+    WHERE f.id = ?
+  `, [friendshipId]);
+  return f && f.is_bot === 1;
+}
+
+function createBotForUser(userId) {
+  // Check if user already has a bot
+  const existing = getBotForUser(userId);
+  if (existing) return existing;
+
+  const user = getUserById(userId);
+  if (!user) return null;
+
+  const botUsername = `${BOT_USERNAME_PREFIX}${userId}`;
+  const botId = runAndGetId(
+    'INSERT INTO users (username, password, is_bot) VALUES (?, ?, 1)',
+    [botUsername, '']
+  );
+
+  // Create bot-owner mapping
+  run('INSERT INTO user_bots (bot_user_id, owner_user_id) VALUES (?, ?)', [botId, userId]);
+
+  // Create "AI 助手" friend group if not exists
+  try { run('INSERT INTO friend_groups (user_id, name) VALUES (?, ?)', [userId, BOT_GROUP_NAME]); } catch (e) { /* exists */ }
+
+  // Create bidirectional friendship
+  const botDisplayName = 'AI 助手';
+  try { run('INSERT INTO friendships (user_id, friend_id, group_name) VALUES (?, ?, ?)', [userId, botId, BOT_GROUP_NAME]); } catch (e) {}
+  try { run('INSERT INTO friendships (user_id, friend_id, group_name) VALUES (?, ?, ?)', [botId, userId, '用户']); } catch (e) {}
+
+  return {
+    bot_user_id: botId,
+    bot_username: botDisplayName,
+  };
+}
+
+function getBotConversationContext(userId, botUserId, limit = 10) {
+  const messages = all(`
+    SELECT sender_id, content, message_type
+    FROM messages
+    WHERE group_id IS NULL
+      AND ((sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?))
+    ORDER BY created_at DESC
+    LIMIT ?
+  `, [userId, botUserId, botUserId, userId, limit]);
+
+  // Reverse to chronological order and format for LLM
+  const formatted = [];
+  // Add system prompt
+  // Note: messages come in DESC order, need to reverse for chronological
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    formatted.push({
+      role: m.sender_id === userId ? 'user' : 'assistant',
+      content: m.content,
+    });
+  }
+
+  return formatted;
+}
+
+function updateMessageContent(messageId, content) {
+  run('UPDATE messages SET content = ? WHERE id = ?', [content, messageId]);
 }
 
 // ==================== Chat Group Operations ====================
@@ -424,6 +550,7 @@ function getRecentContacts(userId) {
     FROM messages m
     JOIN users u ON u.id = CASE WHEN m.sender_id = ? THEN m.receiver_id ELSE m.sender_id END
     WHERE m.group_id IS NULL AND (m.sender_id = ? OR m.receiver_id = ?)
+      AND u.is_bot = 0
     GROUP BY contact_id
     ORDER BY last_time DESC
   `, [userId, userId, userId, userId]);
@@ -439,9 +566,11 @@ module.exports = {
   // Friendships
   getFriends, getFriendsByGroup, removeFriend, moveFriendToGroup,
   // Friend Groups
-  getFriendGroups, createFriendGroup, deleteFriendGroup,
+  getFriendGroups, createFriendGroup, renameFriendGroup, deleteFriendGroup,
   // Chat Groups
   createChatGroup, addGroupMember, removeGroupMember, getUserGroups, getGroupMembers, getGroupById,
   // Messages
   saveMessage, getPrivateMessages, getGroupMessages, getAllPrivateMessages, getAllGroupMessages, getRecentContacts,
+  // Bot
+  isBotUser, getBotForUser, getOwnerForBot, createBotForUser, isBotFriendship, getBotConversationContext, updateMessageContent,
 };

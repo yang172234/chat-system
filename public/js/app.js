@@ -7,6 +7,7 @@ const App = {
   groups: [],
   contacts: [],
   pendingRequests: [],
+  botFriendIds: new Set(),
 };
 
 // ==================== DOM Elements ====================
@@ -215,7 +216,34 @@ async function loadAllData() {
 
 async function loadFriends() {
   const res = await api('/api/friends');
-  if (res.groups) App.friends = res.groups;
+  if (res.groups) {
+    App.friends = res.groups;
+    // Collect bot friend IDs
+    App.botFriendIds.clear();
+    for (const friends of Object.values(res.groups)) {
+      for (const f of friends) {
+        if (f.is_bot === 1) {
+          App.botFriendIds.add(f.friend_id);
+        }
+      }
+    }
+    // Auto-create bot for legacy users who don't have one
+    if (App.botFriendIds.size === 0) {
+      try {
+        const botRes = await api('/api/ai-bot/create', { method: 'POST' });
+        if (botRes.success) {
+          // Reload friends to get the new bot
+          const reloadRes = await api('/api/friends');
+          if (reloadRes.groups) App.friends = reloadRes.groups;
+          for (const friends of Object.values(reloadRes.groups || {})) {
+            for (const f of friends) {
+              if (f.is_bot === 1) App.botFriendIds.add(f.friend_id);
+            }
+          }
+        }
+      } catch (e) { /* ignore */ }
+    }
+  }
   renderFriendGroups();
 }
 
@@ -257,8 +285,23 @@ function initSocket() {
   App.socket.on('friends-updated', loadFriends);
   App.socket.on('groups-updated', loadGroups);
   App.socket.on('group-added', loadGroups);
-  App.socket.on('user-online', () => {});
-  App.socket.on('user-offline', () => {});
+  App.socket.on('user-online', (data) => {
+    if (data.isBot) {
+      // Bot is always online - update UI if needed
+      const botEl = document.querySelector(`.friend-item[data-friend-id="${data.userId}"]`);
+      if (botEl) {
+        botEl.style.opacity = '1';
+      }
+    }
+  });
+  App.socket.on('user-offline', (data) => {
+    // Bot never goes offline - ignore
+    if (App.botFriendIds.has(data.userId)) return;
+  });
+  // Bot streaming events
+  App.socket.on('bot-message-stream', handleBotMessageStream);
+  App.socket.on('bot-message-delta', handleBotMessageDelta);
+  App.socket.on('bot-message-done', handleBotMessageDone);
 }
 
 // ==================== Help Button ====================
